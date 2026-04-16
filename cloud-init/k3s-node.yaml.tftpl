@@ -1,0 +1,38 @@
+#cloud-config
+users:
+  - default
+  - name: ${admin_username}
+    shell: /bin/bash
+    groups: [sudo]
+    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+    ssh_authorized_keys:
+%{ for key in admin_ssh_public_keys ~}
+      - ${key}
+%{ endfor ~}
+
+package_update: true
+package_upgrade: true
+packages:
+  - qemu-guest-agent
+  - curl
+  - jq
+  - ufw
+  - fail2ban
+  - unattended-upgrades
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/99-hardening.conf
+    owner: root:root
+    permissions: "0644"
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin prohibit-password
+      PubkeyAuthentication yes
+
+runcmd:
+  - systemctl restart ssh || systemctl restart sshd
+  - systemctl enable --now qemu-guest-agent
+  - dpkg-reconfigure -f noninteractive unattended-upgrades
+
+final_message: "cloud-init baseline hardening completed"
