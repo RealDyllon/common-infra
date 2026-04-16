@@ -1,0 +1,74 @@
+name: Infra CI
+
+on:
+  pull_request:
+    paths:
+      - "terraform/**"
+      - ".github/workflows/infra-ci.yml"
+      - "Makefile"
+      - ".tflint.hcl"
+      - "docs/**"
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_CLI_ARGS_init: "-input=false"
+      TF_PLAN_VARS_FILE: ci.tfvars
+      TF_PLUGIN_CACHE_DIR: ${{ runner.temp }}/terraform-plugin-cache
+      # Optional token for provider/module downloads from private registries.
+      TF_TOKEN_app_terraform_io: ${{ secrets.TF_TOKEN_APP_TERRAFORM_IO }}
+
+    defaults:
+      run:
+        working-directory: terraform/hetzner
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Checkov
+        run: pip install checkov
+
+      - name: Prepare Terraform plan fixtures
+        run: |
+          touch ci_id_ed25519
+          chmod 600 ci_id_ed25519
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform validate
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Terraform plan (safe mode)
+        run: |
+          terraform init -backend=false
+          terraform plan -input=false -lock=false -refresh=false -var-file=ci.tfvars
+
+      - name: TFLint
+        working-directory: .
+        run: |
+          tflint --init
+          tflint --chdir terraform/hetzner
+
+      - name: Checkov
+        working-directory: .
+        run: checkov --directory terraform/hetzner --quiet
